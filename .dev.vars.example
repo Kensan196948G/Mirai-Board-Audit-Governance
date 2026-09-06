@@ -2,3 +2,12 @@
 # 初回 npm run dev で scripts/dev-vars.mjs が自動生成します
 SESSION_SECRET=replace-with-a-random-string
 SEED_KEY=replace-with-a-random-string
+
+# 以下はバックログ B-02/B-03/B-04 の外部連携を実接続する場合のみ設定する（既定は未設定＝機能無効）
+# EMAIL_WEBHOOK_URL=https://example.com/email-webhook
+# EMAIL_WEBHOOK_SECRET=replace-with-a-random-string
+# CONNECTOR_WEBHOOK_SECRET=replace-with-a-random-string
+# OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
+# OIDC_CLIENT_ID=replace-with-idp-client-id
+# OIDC_CLIENT_SECRET=replace-with-idp-client-secret
+# OIDC_REDIRECT_URI=https://mbag-mvp.mirai-dx-platform.com/api/auth/oidc/callback

@@ -1,3 +1,6 @@
+/** cron・Webhook受信等、人間のユーザーが介在しない操作の監査ログ主体（users テーブルにサービスアカウントとして存在） */
+export const SYSTEM_ACTOR_ID = "system-automation";
+
 export function uuid(): string {
   return crypto.randomUUID();
 }

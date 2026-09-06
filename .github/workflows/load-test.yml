@@ -1,0 +1,36 @@
+name: Load Test (manual)
+
+# バックログ B-06: 性能・負荷試験。通常CIには含めず、手動起動のみ。
+# 対象URLは実行時に入力する（本番URLを既定値にしない）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "対象URL（例: preview環境）"
+        required: true
+      demo_user_id:
+        description: "デモユーザーID"
+        required: false
+        default: "user-director-1"
+      vus:
+        description: "同時接続数"
+        required: false
+        default: "100"
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run k6
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: scripts/load/k6-smoke.js
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          DEMO_USER_ID: ${{ inputs.demo_user_id }}
+          VUS: ${{ inputs.vus }}

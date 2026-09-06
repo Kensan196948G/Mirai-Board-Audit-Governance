@@ -18,6 +18,7 @@
     "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
     "test:integration": "node --test \"tests/integration/**/*.test.ts\"",
     "seed": "node scripts/seed.mjs",
+    "test:load": "k6 run scripts/load/k6-smoke.js",
     "db:migrate:local": "wrangler d1 migrations apply mirai-board-audit-governance-db --local",
     "deploy:preview": "npm run build && wrangler deploy",
     "types": "wrangler types"

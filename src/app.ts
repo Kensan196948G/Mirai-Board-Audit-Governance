@@ -3,12 +3,14 @@ import type { Db } from "./db/types.ts";
 import { createErrorResponse, handleError } from "./errors.ts";
 import { corsMiddleware, type AppVars } from "./middleware.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { oidcRoutes } from "./routes/oidc.ts";
 import { meetingsRoutes } from "./routes/meetings.ts";
 import { agendaRoutes } from "./routes/agenda.ts";
 import { auditRoutes } from "./routes/audit.ts";
 import { evidenceRoutes } from "./routes/evidence.ts";
 import { retentionRoutes } from "./routes/retention.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { connectorRoutes } from "./routes/connectors.ts";
 import { aiRoutes } from "./routes/ai.ts";
 import { seedAll } from "./seed.ts";
 
@@ -19,6 +21,14 @@ export type AppDeps = {
   environment: string;
   assets?: Fetcher;
   assetRoot?: string;
+  /** バックログ B-03: 実メールプロバイダ設定（未設定時は console プロバイダで安全に動作） */
+  email?: { provider?: string; webhookUrl?: string; webhookSecret?: string };
+  /** バックログ B-04: 正本外部連携（Webhook署名検証用の共有鍵。未設定時は受信を拒否） */
+  connectorWebhookSecret?: string;
+  /** バックログ B-04: 正本の文書管理システムへの送信先（未設定時は該当コネクタが無効） */
+  documentManagementWebhookUrl?: string;
+  /** バックログ B-02: OIDC/SSO本実装設定（未設定時は /api/auth/oidc/* が501を返す） */
+  oidc?: { issuer?: string; clientId?: string; clientSecret?: string; redirectUri?: string };
 };
 
 export function buildApp(deps: AppDeps) {
@@ -50,12 +60,14 @@ export function buildApp(deps: AppDeps) {
   });
 
   app.route("/api/auth", authRoutes());
+  app.route("/api/auth", oidcRoutes());
   app.route("/api", meetingsRoutes());
   app.route("/api", agendaRoutes());
   app.route("/api", auditRoutes());
   app.route("/api", evidenceRoutes());
   app.route("/api", retentionRoutes());
   app.route("/api", adminRoutes());
+  app.route("/api", connectorRoutes());
   app.route("/api/ai", aiRoutes());
 
   app.notFound((c) => createErrorResponse(c, "NOT_FOUND", "対象が見つかりません", { status: 404 }));

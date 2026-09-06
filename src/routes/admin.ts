@@ -1,5 +1,15 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import { writeAuditEvent } from "../audit.ts";
+import {
+  certifyAccess,
+  grantEmergencyAccess,
+  listCertificationStatus,
+  listEmergencyGrants,
+  revokeEmergencyGrant,
+  sweepAccessControl,
+} from "../services/access-control.ts";
 import { authMiddleware, requirePerm, type AppVars } from "../middleware.ts";
 
 const FR_MAP = [
@@ -33,18 +43,86 @@ const AC_MAP = [
 ];
 
 const NFR_MAP = [
-  ["NFR-01", "可用性・復旧（RTO/RPO）", "backlog", "本番運用フェーズ（B-08）"],
-  ["NFR-02", "性能（p95 2秒/検索3秒）", "backlog", "負荷試験（B-06）"],
-  ["NFR-03", "セキュリティ試験", "backlog", "SAST/DAST（B-07）"],
+  ["NFR-01", "可用性・復旧（RTO/RPO）", "partial", "D1 Time Travel手順・スクリプト整備済み（docs/runbooks/backup-restore.md）。本番実施・記録が未了（B-08）"],
+  ["NFR-02", "性能（p95 2秒/検索3秒）", "partial", "k6負荷試験スクリプト整備済み（scripts/load/k6-smoke.js）。実施環境での測定が未了（B-06）"],
+  ["NFR-03", "セキュリティ試験", "partial", "CI組み込み済み（npm audit / Dependency Review / CodeQL）。CodeQLはGitHub Advanced Security有効化が別途必要（B-07）"],
   ["NFR-04", "アクセシビリティ・レスポンシブ", "implemented", "web/src（セマンティックHTML・キーボード・320px）"],
   ["NFR-05", "監視・ログ・トレース", "partial", "observability有効／アラートはB-08"],
   ["NFR-06", "Manifest再現・署名・欠番検証", "implemented", "verify-chain / manifests/:id/verify"],
 ];
 
+const certifySchema = z.object({
+  userId: z.string().min(1),
+  cycle: z.string().min(1),
+  days: z.number().int().positive().max(366).optional(),
+});
+
+const emergencyGrantSchema = z.object({
+  userId: z.string().min(1),
+  permission: z.string().min(1),
+  reason: z.string().min(1),
+  expiresInHours: z.number().int().positive().max(24 * 30),
+});
+
 export function adminRoutes() {
   const app = new Hono<{ Variables: AppVars }>();
   app.use("/users", authMiddleware);
   app.use("/admin/*", authMiddleware);
+  app.use("/access/*", authMiddleware);
+
+  app.get("/access/certifications", requirePerm("access:view"), async (c) => {
+    const items = await listCertificationStatus(c.get("deps").db);
+    return c.json({ items, total: items.length });
+  });
+
+  app.post("/access/certifications", requirePerm("access:manage"), zValidator("json", certifySchema), async (c) => {
+    const deps = c.get("deps");
+    const user = c.get("user");
+    const body = c.req.valid("json");
+    const result = await certifyAccess(deps.db, {
+      userId: body.userId,
+      certifiedBy: user.id,
+      cycle: body.cycle,
+      days: body.days,
+      correlationId: c.get("correlationId"),
+    });
+    return c.json({ item: result }, 201);
+  });
+
+  app.post("/access/sweep", requirePerm("access:manage"), async (c) => {
+    const deps = c.get("deps");
+    const user = c.get("user");
+    const result = await sweepAccessControl(deps.db, { actorId: user.id, correlationId: c.get("correlationId") });
+    return c.json({ item: result });
+  });
+
+  app.get("/access/emergency-grants", requirePerm("access:view"), async (c) => {
+    const items = await listEmergencyGrants(c.get("deps").db);
+    return c.json({ items, total: items.length });
+  });
+
+  app.post("/access/emergency-grants", requirePerm("access:manage"), zValidator("json", emergencyGrantSchema), async (c) => {
+    const deps = c.get("deps");
+    const user = c.get("user");
+    const body = c.req.valid("json");
+    const result = await grantEmergencyAccess(deps.db, {
+      userId: body.userId,
+      permission: body.permission,
+      reason: body.reason,
+      grantedBy: user.id,
+      expiresInHours: body.expiresInHours,
+      correlationId: c.get("correlationId"),
+    });
+    return c.json({ item: result }, 201);
+  });
+
+  app.post("/access/emergency-grants/:id/revoke", requirePerm("access:manage"), async (c) => {
+    const deps = c.get("deps");
+    const user = c.get("user");
+    const id = c.req.param("id")!;
+    await revokeEmergencyGrant(deps.db, id, user.id, c.get("correlationId"));
+    return c.json({ item: { id, status: "revoked" } });
+  });
 
   app.get("/users", requirePerm("agenda:view"), async (c) => {
     const deps = c.get("deps");
