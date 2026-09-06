@@ -11,7 +11,15 @@
   },
   "vars": {
     "ENVIRONMENT": "preview",
-    "APP_NAME": "mirai-board-audit-governance"
+    "APP_NAME": "mirai-board-audit-governance",
+    // バックログ B-03: 実メールプロバイダ接続前は既定で "console"（外部送信なし）。
+    // 実接続する場合のみ "webhook" にし、EMAIL_WEBHOOK_URL / EMAIL_WEBHOOK_SECRET を
+    // `wrangler secret put` で設定する（値はここに書かない）。
+    "EMAIL_PROVIDER": "console"
+  },
+  // バックログ B-09: 四半期アクセス再認証・緊急権限の自動失効を日次で確認する。
+  "triggers": {
+    "crons": ["0 18 * * *"]
   },
   "d1_databases": [
     {

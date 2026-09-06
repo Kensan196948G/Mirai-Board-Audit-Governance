@@ -5,11 +5,11 @@ export type SessionPayload = {
   exp: number;
 };
 
-function b64url(input: string): string {
+export function b64url(input: string): string {
   return btoa(input).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function b64urlDecode(input: string): string {
+export function b64urlDecode(input: string): string {
   const padded = input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (input.length % 4)) % 4);
   return atob(padded);
 }

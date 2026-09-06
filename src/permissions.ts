@@ -50,7 +50,10 @@ export type Permission =
   | "admin:users"
   | "admin:sod"
   | "admin:requirements"
-  | "admin:audit-access";
+  | "admin:audit-access"
+  | "access:manage"
+  | "access:view"
+  | "connector:manage";
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   director: [
@@ -156,6 +159,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "auditlog:view",
     "admin:sod",
     "admin:requirements",
+    "access:view",
     "ai:use",
   ],
   business_owner: [
@@ -185,6 +189,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "retention:manage",
     "legalhold:manage",
     "admin:requirements",
+    "access:view",
     "notification:ack",
   ],
   records: [
@@ -200,6 +205,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "disposal:manage",
     "auditlog:view",
     "admin:requirements",
+    "access:view",
     "notification:ack",
   ],
   admin: [
@@ -247,6 +253,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "admin:sod",
     "admin:requirements",
     "admin:audit-access",
+    "access:manage",
+    "access:view",
+    "connector:manage",
   ],
   audit_log_viewer: [
     "agenda:view",
@@ -257,6 +266,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "manifest:verify",
     "auditlog:view",
     "export:csv",
+    "access:view",
     "notification:ack",
   ],
 };

@@ -6,6 +6,7 @@ import { assertTwoPersonApproval } from "../domain.ts";
 import { AppError } from "../errors.ts";
 import { nowIso, sha256Hex, uuid } from "../ids.ts";
 import { authMiddleware, requirePerm, type AppVars } from "../middleware.ts";
+import { generateSimplePdf } from "../pdf.ts";
 
 const holdSchema = z.object({
   scopeType: z.string().min(1),
@@ -133,6 +134,36 @@ export function retentionRoutes() {
     );
     await writeAuditEvent(deps.db, { actorId: user.id, action: "disposal.execute", resourceType: "disposal_candidate", resourceId: id, correlationId: c.get("correlationId") });
     return c.json({ item: { id, status: "disposed", certificateHash } });
+  });
+
+  app.get("/disposals/:id/certificate.pdf", requirePerm("disposal:manage"), async (c) => {
+    const deps = c.get("deps");
+    const id = c.req.param("id")!;
+    const row = await deps.db.first<Record<string, unknown>>(
+      "SELECT d.*, req.name AS requested_by_name, appr.name AS approved_by_name, exec.name AS executed_by_name FROM disposal_candidates d " +
+        "LEFT JOIN users req ON req.id = d.requested_by LEFT JOIN users appr ON appr.id = d.approved_by LEFT JOIN users exec ON exec.id = d.executed_by " +
+        "WHERE d.id = ?",
+      id,
+    );
+    if (!row) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
+    if (String(row.status) !== "disposed" || !row.certificate_hash) {
+      throw new AppError("CONFLICT", "廃棄が完了していないため証明書を発行できません", 409);
+    }
+    const lines = [
+      `対象種別: ${row.record_type} / 対象ID: ${row.record_id}`,
+      `保持期限: ${row.expires_at}`,
+      `申請者: ${row.requested_by_name ?? row.requested_by}`,
+      `承認者: ${row.approved_by_name ?? row.approved_by}`,
+      `実行者: ${row.executed_by_name ?? row.executed_by}`,
+      `実行日時: ${row.executed_at}`,
+      `証明書ハッシュ (SHA-256): ${row.certificate_hash}`,
+      "",
+      "本証明書は、法的保全が課されていないことを確認の上、二者承認を経て廃棄が実行されたことを示す。",
+    ];
+    const pdf = generateSimplePdf(`廃棄証明書 / Disposal Certificate ${id}`, lines);
+    return new Response(pdf, {
+      headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="disposal-certificate-${id}.pdf"` },
+    });
   });
 
   return app;

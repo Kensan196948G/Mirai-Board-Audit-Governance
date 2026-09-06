@@ -4,6 +4,8 @@ import { AppError } from "../errors.ts";
 import { nowIso } from "../ids.ts";
 import { verifyManifest } from "../manifest.ts";
 import { authMiddleware, requirePerm, type AppVars } from "../middleware.ts";
+import { generateSimplePdf } from "../pdf.ts";
+import { escalateNotification, redeliverNotification } from "../services/notify.ts";
 
 function csvCell(value: unknown): string {
   const s = value === null || value === undefined ? "" : String(value);
@@ -87,6 +89,41 @@ export function evidenceRoutes() {
         .join("")}</tbody></table>` : ""}
       <p class="no-print"><button onclick="window.print()">印刷 / PDF保存</button> <a href="javascript:history.back()">戻る</a></p></body></html>`;
     return c.html(html);
+  });
+
+  app.get("/evidence-packages/:id/pdf", requirePerm("evidence:view"), async (c) => {
+    const deps = c.get("deps");
+    const id = c.req.param("id")!;
+    const manifest = await deps.db.first<Record<string, unknown>>("SELECT * FROM evidence_manifests WHERE id = ?", id);
+    if (!manifest) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
+    let content: Record<string, unknown> = {};
+    try {
+      content = JSON.parse(String(manifest.content)) as Record<string, unknown>;
+    } catch {
+      /* keep empty */
+    }
+    const packageItems = manifest.package_id
+      ? await deps.db.all<Record<string, unknown>>("SELECT * FROM deliberation_package_items WHERE package_id = ?", String(manifest.package_id))
+      : [];
+    const lines = [
+      `Manifest ID: ${id}`,
+      `対象種別: ${manifest.subject_type} / 対象ID: ${manifest.subject_id}`,
+      `固定日時: ${manifest.fixed_at} / 固定者: ${manifest.fixed_by}`,
+      `SHA-256: ${manifest.sha256_full}`,
+      "",
+      "-- Manifest 内容 --",
+      ...JSON.stringify(content, null, 2).split("\n"),
+    ];
+    if (packageItems.length) {
+      lines.push("", "-- 審議資料パッケージ --");
+      for (const it of packageItems) {
+        lines.push(`* ${it.title} (source=${it.source_id} v${it.source_version}) sha256=${it.sha256_full}`);
+      }
+    }
+    const pdf = generateSimplePdf(`Evidence Package ${id}`, lines);
+    return new Response(pdf, {
+      headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="evidence-${id}.pdf"` },
+    });
   });
 
   app.get("/audit-events", requirePerm("auditlog:view"), async (c) => {
@@ -224,6 +261,32 @@ export function evidenceRoutes() {
     );
     await writeAuditEvent(deps.db, { actorId: user.id, action: "notification.retry", resourceType: "notification", resourceId: id, correlationId: c.get("correlationId") });
     return c.json({ item: { id, status: "delivered", retryCount: Number(row.retry_count) + 1 } });
+  });
+
+  app.post("/notifications/:id/redeliver", requirePerm("notification:ack"), async (c) => {
+    const deps = c.get("deps");
+    const user = c.get("user");
+    const id = c.req.param("id")!;
+    const row = await deps.db.first<Record<string, unknown>>("SELECT * FROM notifications WHERE id = ? AND recipient_id = ?", id, user.id);
+    if (!row) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
+    const result = await redeliverNotification(deps.db, id, deps.email);
+    return c.json({ item: { id, ...result } });
+  });
+
+  app.post("/notifications/:id/escalate", requirePerm("notification:ack"), async (c) => {
+    const deps = c.get("deps");
+    const user = c.get("user");
+    const id = c.req.param("id")!;
+    const owned = await deps.db.first<Record<string, unknown>>(
+      "SELECT id FROM notifications WHERE id = ? AND recipient_id = ?",
+      id,
+      user.id,
+    );
+    if (!owned) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
+    const escalatedTo = (await c.req.json().catch(() => ({}))) as { escalatedTo?: string };
+    if (!escalatedTo.escalatedTo) throw new AppError("VALIDATION", "escalatedTo は必須です", 400);
+    await escalateNotification(deps.db, id, escalatedTo.escalatedTo, user.id, c.get("correlationId"), deps.email);
+    return c.json({ item: { id, status: "escalated" } });
   });
 
   app.get("/exports/agenda-items.csv", requirePerm("export:csv"), async (c) => {

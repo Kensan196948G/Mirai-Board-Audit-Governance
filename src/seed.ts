@@ -56,6 +56,8 @@ export async function seedAll(db: Db): Promise<Record<string, number>> {
     { id: "user-records-1", name: "井上智子", email: "inoue.tomoko@example.jp", role: "records", title: "記録管理担当", department: "総務部", outside: 0, body_ids: JSON.stringify(["body-board"]), active: 1, created_at: at },
     { id: "user-admin-1", name: "林知佳", email: "hayashi.chika@example.jp", role: "admin", title: "システム管理者", department: "IT企画部", outside: 0, body_ids: JSON.stringify([]), active: 1, created_at: at },
     { id: "user-auditlog-1", name: "石田誠", email: "ishida.makoto@example.jp", role: "audit_log_viewer", title: "監査ログ閲覧者", department: "内部監査室", outside: 0, body_ids: JSON.stringify([]), active: 1, created_at: at },
+    // cron・Webhook受信等、人間が介在しない操作の監査ログ主体（ログイン不可: active=0）
+    { id: "system-automation", name: "システム自動処理", email: "system-automation@internal.invalid", role: "admin", title: "サービスアカウント", department: "システム", outside: 0, body_ids: JSON.stringify([]), active: 0, created_at: at },
   ];
   for (const u of users) {
     await insert(db, "users", u);

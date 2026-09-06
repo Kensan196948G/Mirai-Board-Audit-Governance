@@ -1,0 +1,31 @@
+name: CodeQL
+
+# バックログ B-07: SAST（静的解析によるセキュリティスキャン）
+# 注意: リポジトリがprivateに変更された場合、CodeQLの実行には GitHub Advanced Security の
+# 有効化が必要になる（public repoでは無償で動作する）。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: ["javascript-typescript"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@v3

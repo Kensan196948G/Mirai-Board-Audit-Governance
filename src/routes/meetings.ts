@@ -7,6 +7,7 @@ import { AppError } from "../errors.ts";
 import { nowIso, sha256Hex, uuid } from "../ids.ts";
 import { authMiddleware, requirePerm, type AppVars } from "../middleware.ts";
 import { notifyUser } from "../services/notify.ts";
+import { generateSimplePdf } from "../pdf.ts";
 import type { Db } from "../db/types.ts";
 
 const meetingSchema = z.object({
@@ -260,6 +261,35 @@ export function meetingsRoutes() {
     );
     await writeAuditEvent(deps.db, { actorId: user.id, action: "minutes.sign", resourceType: "minutes_version", resourceId: versionId, resourceVersion: String(version.version_no), correlationId: c.get("correlationId") });
     return c.json({ item: { versionId, userId: user.id, signedAt: at } }, 201);
+  });
+
+  app.get("/minutes/:versionId/pdf", requirePerm("evidence:view"), async (c) => {
+    const deps = c.get("deps");
+    const versionId = c.req.param("versionId")!;
+    const version = await deps.db.first<Record<string, unknown>>(
+      "SELECT mv.*, mt.title AS meeting_title FROM minutes_versions mv JOIN minutes m ON m.id = mv.minutes_id JOIN meetings mt ON mt.id = m.meeting_id WHERE mv.id = ?",
+      versionId,
+    );
+    if (!version) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
+    const signatories = await deps.db.all<Record<string, unknown>>(
+      "SELECT ms.signed_at, u.name FROM minutes_signatories ms JOIN users u ON u.id = ms.user_id WHERE ms.version_id = ? AND ms.invalidated_at IS NULL ORDER BY ms.signed_at",
+      versionId,
+    );
+    const lines = [
+      `会議: ${version.meeting_title}`,
+      `版: v${version.version_no} / SHA-256: ${version.sha256_full}`,
+      `作成日時: ${version.created_at}`,
+      "",
+      "-- 議事録本文 --",
+      ...String(version.content).split("\n"),
+      "",
+      "-- 記名 --",
+      ...(signatories.length ? signatories.map((s) => `${s.name}: ${s.signed_at}`) : ["（記名なし）"]),
+    ];
+    const pdf = generateSimplePdf(`議事録 v${version.version_no}`, lines);
+    return new Response(pdf, {
+      headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="minutes-${versionId}.pdf"` },
+    });
   });
 
   return app;
