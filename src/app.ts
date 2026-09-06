@@ -25,8 +25,9 @@ export type AppDeps = {
   email?: { provider?: string; webhookUrl?: string; webhookSecret?: string };
   /** バックログ B-04: 正本外部連携（Webhook署名検証用の共有鍵。未設定時は受信を拒否） */
   connectorWebhookSecret?: string;
-  /** バックログ B-04: 正本の文書管理システムへの送信先（未設定時は該当コネクタが無効） */
+  /** バックログ B-04: 正本の文書管理システムへの送信先・署名鍵（両方揃わない限り該当コネクタは無効） */
   documentManagementWebhookUrl?: string;
+  documentManagementWebhookSecret?: string;
   /** バックログ B-02: OIDC/SSO本実装設定（未設定時は /api/auth/oidc/* が501を返す） */
   oidc?: { issuer?: string; clientId?: string; clientSecret?: string; redirectUri?: string };
 };

@@ -118,6 +118,7 @@ export async function escalateNotification(
   escalatedTo: string,
   actorId: string,
   correlationId?: string,
+  email?: EmailConfig,
 ): Promise<void> {
   const notification = await db.first<Record<string, unknown>>("SELECT * FROM notifications WHERE id = ?", notificationId);
   if (!notification) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
@@ -134,8 +135,9 @@ export async function escalateNotification(
     `【エスカレーション】${String(notification.title)}`,
     `未受領のため転送されました。原受信者: ${String(notification.recipient_id)}\n${String(notification.body)}`,
     "escalation",
-    String(notification.ref_type ?? ""),
-    String(notification.ref_id ?? ""),
+    notification.ref_type == null ? undefined : String(notification.ref_type),
+    notification.ref_id == null ? undefined : String(notification.ref_id),
+    email,
   );
   await writeAuditEvent(db, {
     actorId,

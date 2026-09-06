@@ -29,6 +29,28 @@ describe("四半期アクセス再認証・緊急権限の自動失効（B-09）
     assert.equal(res.status, 404);
   });
 
+  it("緊急権限はロールに無い権限を一時的に認可し、失効後は再び拒否される", async () => {
+    const { app, db } = await createTestApp();
+    const admin = await login(app, "user-admin-1");
+    const owner = await login(app, "user-owner-1");
+    // business_owner は disposal:manage を持たない → 404
+    const before = await get(app, "/api/disposals", owner);
+    assert.equal(before.status, 404);
+    const grant = await post(app, "/api/access/emergency-grants", admin, {
+      userId: "user-owner-1",
+      permission: "disposal:manage",
+      reason: "障害対応のため一時的に付与",
+      expiresInHours: 1,
+    });
+    const body = (await grant.json()) as { item: { id: string } };
+    const during = await get(app, "/api/disposals", owner);
+    assert.equal(during.status, 200);
+    await db.run("UPDATE emergency_access_grants SET expires_at = '2020-01-01T00:00:00.000Z' WHERE id = ?", body.item.id);
+    await sweepAccessControl(db);
+    const after = await get(app, "/api/disposals", owner);
+    assert.equal(after.status, 404);
+  });
+
   it("緊急権限は期限切れでスイープすると失効し、手動失効は409で二重処理を防ぐ", async () => {
     const { app, db } = await createTestApp();
     const admin = await login(app, "user-admin-1");
@@ -99,6 +121,17 @@ describe("通知の高度化（B-11）", () => {
     await post(app, `/api/notifications/${unread!.id}/acknowledge`, director, {});
     const again = await post(app, `/api/notifications/${unread!.id}/escalate`, director, { escalatedTo: "user-secretariat-1" });
     assert.equal(again.status, 409);
+  });
+
+  it("他人の通知IDを指定してもエスカレーションできない（IDOR対策）", async () => {
+    const { app } = await createTestApp();
+    const director = await login(app, "user-director-1");
+    const list = await get(app, "/api/users/me/notifications", director);
+    const body = (await list.json()) as { items: Array<{ id: string }> };
+    const othersNotificationId = body.items[0]!.id;
+    const owner = await login(app, "user-owner-1");
+    const res = await post(app, `/api/notifications/${othersNotificationId}/escalate`, owner, { escalatedTo: "user-secretariat-1" });
+    assert.equal(res.status, 404);
   });
 
   it("再送信は配送記録を残す（既定はconsoleプロバイダで常に成功）", async () => {

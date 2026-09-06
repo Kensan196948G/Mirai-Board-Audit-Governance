@@ -35,11 +35,14 @@ type Jwk = { kid: string; kty: string; n: string; e: string; alg?: string };
 const discoveryCache = new Map<string, { value: Discovery; expiresAt: number }>();
 const jwksCache = new Map<string, { value: Jwk[]; expiresAt: number }>();
 const CACHE_TTL_MS = 10 * 60_000;
+const FETCH_TIMEOUT_MS = 10_000;
 
 async function discover(issuer: string): Promise<Discovery> {
   const cached = discoveryCache.get(issuer);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const res = await fetch(`${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`);
+  const res = await fetch(`${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`OIDC discovery failed: ${res.status}`);
   const value = (await res.json()) as Discovery;
   discoveryCache.set(issuer, { value, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -49,7 +52,7 @@ async function discover(issuer: string): Promise<Discovery> {
 async function getJwks(jwksUri: string): Promise<Jwk[]> {
   const cached = jwksCache.get(jwksUri);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const res = await fetch(jwksUri);
+  const res = await fetch(jwksUri, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
   const body = (await res.json()) as { keys: Jwk[] };
   jwksCache.set(jwksUri, { value: body.keys, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -112,6 +115,7 @@ export async function exchangeCode(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: body.toString(),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`token exchange failed: ${res.status}`);
   const json = (await res.json()) as { id_token?: string };
@@ -135,6 +139,9 @@ export async function verifyIdToken(
   if (parts.length !== 3) throw new Error("malformed id_token");
   const [headerB64, payloadB64, signatureB64] = parts as [string, string, string];
   const header = JSON.parse(b64urlDecode(headerB64)) as { kid?: string; alg?: string };
+  // 注意（既知の制約）: メールアドレスは ID トークンのクレームからのみ取得する。
+  // UserInfo エンドポイントへのフォールバックは未実装のため、ID トークンに email を
+  // 含めない構成のIdPでは本フローでのログインができない（実接続時に個別対応が必要）。
   const payload = JSON.parse(b64urlDecode(payloadB64)) as {
     iss: string;
     aud: string | string[];
@@ -142,6 +149,7 @@ export async function verifyIdToken(
     nonce?: string;
     sub: string;
     email?: string;
+    email_verified?: boolean;
     name?: string;
   };
   if (header.alg !== "RS256") throw new Error(`unsupported alg: ${header.alg}`);
@@ -165,5 +173,8 @@ export async function verifyIdToken(
   if (!audiences.includes(config.clientId)) throw new Error("aud mismatch");
   if (payload.exp * 1000 < Date.now()) throw new Error("id_token expired");
   if (payload.nonce !== expectedNonce) throw new Error("nonce mismatch");
+  if (payload.email && payload.email_verified !== true) {
+    throw new Error("email not verified by IdP");
+  }
   return { sub: payload.sub, email: payload.email, name: payload.name };
 }

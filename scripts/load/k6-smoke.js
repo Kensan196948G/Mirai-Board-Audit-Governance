@@ -29,7 +29,7 @@ export const options = {
 function login() {
   const res = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify({ userId: DEMO_USER_ID }), {
     headers: { "content-type": "application/json" },
-    tags: { endpoint: "general" },
+    tags: { endpoint: "auth" },
   });
   check(res, { "login 200": (r) => r.status === 200 });
   return res.json("token");

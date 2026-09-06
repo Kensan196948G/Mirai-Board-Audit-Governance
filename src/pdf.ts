@@ -2,6 +2,12 @@
  * 依存パッケージ無しの最小PDF生成器（Cloudflare Workersランタイムでも動作）。
  * 等幅フォントでのプレーンテキスト帳票（証拠パッケージ・議事録・廃棄証明書）専用。
  * バックログ B-05（PDF帳票のサーバ生成）対応。
+ *
+ * 既知の制約: 標準14フォント（Courier、WinAnsiEncoding）のみを使用しているため、
+ * 日本語を含む非Latin-1文字は正しく描画できない（文字化け・欠落の可能性）。
+ * 日本語コンテンツは当面、印刷用HTML（ブラウザ印刷→PDF、evidence-packages/:id等）を
+ * 利用すること。CJK対応にはCIDフォント埋め込み（Identity-H/ToUnicode）が必要で、
+ * フォントアセットの用意を含む別対応とする。
  */
 
 const PAGE_WIDTH = 595; // A4 pt

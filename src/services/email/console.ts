@@ -10,7 +10,8 @@ export class ConsoleEmailProvider implements EmailProvider {
 
   async send(message: EmailMessage): Promise<EmailSendResult> {
     const providerId = `console:${uuid()}`;
-    console.info(`[email:console] to=${message.to} subject=${message.subject} providerId=${providerId}`);
+    // 宛先・件名は機密情報になり得るためログへは出力しない（診断に必要な情報のみ記録）
+    console.info(`[email:console] providerId=${providerId} bodyLength=${message.body.length}`);
     return { ok: true, providerId };
   }
 }

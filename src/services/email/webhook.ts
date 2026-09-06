@@ -24,6 +24,7 @@ export class WebhookEmailProvider implements EmailProvider {
         method: "POST",
         headers: { "content-type": "application/json", "x-mbag-signature": signature },
         body: payload,
+        signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) {
         return { ok: false, error: `webhook responded ${res.status}` };

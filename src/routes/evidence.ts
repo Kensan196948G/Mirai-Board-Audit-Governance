@@ -277,9 +277,15 @@ export function evidenceRoutes() {
     const deps = c.get("deps");
     const user = c.get("user");
     const id = c.req.param("id")!;
+    const owned = await deps.db.first<Record<string, unknown>>(
+      "SELECT id FROM notifications WHERE id = ? AND recipient_id = ?",
+      id,
+      user.id,
+    );
+    if (!owned) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
     const escalatedTo = (await c.req.json().catch(() => ({}))) as { escalatedTo?: string };
     if (!escalatedTo.escalatedTo) throw new AppError("VALIDATION", "escalatedTo は必須です", 400);
-    await escalateNotification(deps.db, id, escalatedTo.escalatedTo, user.id, c.get("correlationId"));
+    await escalateNotification(deps.db, id, escalatedTo.escalatedTo, user.id, c.get("correlationId"), deps.email);
     return c.json({ item: { id, status: "escalated" } });
   });
 

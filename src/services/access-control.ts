@@ -51,25 +51,38 @@ export async function listCertificationStatus(db: Db): Promise<Array<Record<stri
   );
 }
 
-/** 期限切れの再認証を強制失効させ、対象ユーザーを非活性化する（システム実行または管理者手動実行） */
+/**
+ * 期限切れの再認証を強制失効させ、対象ユーザーを非活性化する（システム実行または管理者手動実行）。
+ * 失効・非活性化はいずれも「対象がまだ期待した状態のときだけ」を条件にした単一UPDATEで行い、
+ * スイープと同時に新しい再認証が登録された場合でもユーザーを誤って非活性化しない。
+ */
 export async function sweepExpiredCertifications(
   db: Db,
   opts: { actorId?: string; correlationId?: string } = {},
 ): Promise<{ expiredCertifications: number; deactivatedUsers: string[] }> {
   const now = nowIso();
-  const expired = await db.all<Record<string, unknown>>(
-    `SELECT c.id, c.user_id FROM access_certifications c
-     WHERE c.status = 'active' AND c.expires_at < ?
-       AND c.certified_at = (SELECT MAX(c2.certified_at) FROM access_certifications c2 WHERE c2.user_id = c.user_id)`,
+  const candidates = await db.all<Record<string, unknown>>(
+    `SELECT DISTINCT user_id FROM access_certifications WHERE status = 'active' AND expires_at < ?`,
     now,
   );
   const deactivated: string[] = [];
-  for (const row of expired) {
-    await db.run("UPDATE access_certifications SET status = 'expired' WHERE id = ?", String(row.id));
+  let expiredCount = 0;
+  for (const row of candidates) {
     const userId = String(row.user_id);
-    const user = await db.first<Record<string, unknown>>("SELECT active FROM users WHERE id = ?", userId);
-    if (user && Number(user.active) === 1) {
-      await db.run("UPDATE users SET active = 0 WHERE id = ?", userId);
+    // このユーザーの最新の認定が、依然として期限切れ・未処理のものである場合のみ失効させる
+    // （スイープ実行中に新しい認定が登録された場合はここで changes=0 になり安全に打ち切られる）
+    const expireResult = await db.run(
+      `UPDATE access_certifications SET status = 'expired'
+       WHERE status = 'active' AND expires_at < ? AND user_id = ?
+         AND certified_at = (SELECT MAX(c2.certified_at) FROM access_certifications c2 WHERE c2.user_id = ?)`,
+      now,
+      userId,
+      userId,
+    );
+    if (expireResult.changes < 1) continue;
+    expiredCount += 1;
+    const deactivateResult = await db.run("UPDATE users SET active = 0 WHERE id = ? AND active = 1", userId);
+    if (deactivateResult.changes >= 1) {
       deactivated.push(userId);
       await writeAuditEvent(db, {
         actorId: opts.actorId ?? SYSTEM_ACTOR_ID,
@@ -82,7 +95,7 @@ export async function sweepExpiredCertifications(
       });
     }
   }
-  return { expiredCertifications: expired.length, deactivatedUsers: deactivated };
+  return { expiredCertifications: expiredCount, deactivatedUsers: deactivated };
 }
 
 export async function grantEmergencyAccess(
@@ -123,13 +136,15 @@ export async function revokeEmergencyGrant(
 ): Promise<void> {
   const row = await db.first<Record<string, unknown>>("SELECT * FROM emergency_access_grants WHERE id = ?", id);
   if (!row) throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
-  if (String(row.status) !== "active") throw new AppError("CONFLICT", "既に失効しています", 409);
-  await db.run(
-    "UPDATE emergency_access_grants SET status = 'revoked', revoked_by = ?, revoked_at = ? WHERE id = ?",
+  // status='active' を条件にした単一UPDATEで判定し、失効スイープや並行取消しとの競合による
+  // 二重処理（'revoked' が 'expired' 等で上書きされる／二重の監査イベント）を防ぐ
+  const result = await db.run(
+    "UPDATE emergency_access_grants SET status = 'revoked', revoked_by = ?, revoked_at = ? WHERE id = ? AND status = 'active'",
     revokedBy,
     nowIso(),
     id,
   );
+  if (result.changes < 1) throw new AppError("CONFLICT", "既に失効しています", 409);
   await writeAuditEvent(db, {
     actorId: revokedBy,
     action: "access.emergency_revoke",
@@ -164,12 +179,20 @@ export async function sweepExpiredEmergencyGrants(
   opts: { actorId?: string; correlationId?: string } = {},
 ): Promise<{ expiredGrants: number }> {
   const now = nowIso();
-  const expired = await db.all<Record<string, unknown>>(
+  const candidates = await db.all<Record<string, unknown>>(
     "SELECT id, user_id, permission FROM emergency_access_grants WHERE status = 'active' AND expires_at < ?",
     now,
   );
-  for (const row of expired) {
-    await db.run("UPDATE emergency_access_grants SET status = 'expired' WHERE id = ?", String(row.id));
+  let expiredCount = 0;
+  for (const row of candidates) {
+    // status='active' を条件にした単一UPDATEで判定し、手動取消しとの競合時は
+    // 監査イベントを二重生成しない（changes=0 なら何もしない）
+    const result = await db.run(
+      "UPDATE emergency_access_grants SET status = 'expired' WHERE id = ? AND status = 'active'",
+      String(row.id),
+    );
+    if (result.changes < 1) continue;
+    expiredCount += 1;
     await writeAuditEvent(db, {
       actorId: opts.actorId ?? SYSTEM_ACTOR_ID,
       action: "access.emergency_expired",
@@ -179,7 +202,7 @@ export async function sweepExpiredEmergencyGrants(
       correlationId: opts.correlationId,
     });
   }
-  return { expiredGrants: expired.length };
+  return { expiredGrants: expiredCount };
 }
 
 /** cron/管理操作からまとめて実行するための集約スイープ */

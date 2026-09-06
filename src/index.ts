@@ -1,6 +1,7 @@
 import { buildApp } from "./app.ts";
 import { D1Db } from "./db/d1.ts";
 import { sweepAccessControl } from "./services/access-control.ts";
+import { SYSTEM_ACTOR_ID } from "./ids.ts";
 
 type WorkerEnv = Env & {
   SESSION_SECRET?: string;
@@ -10,6 +11,7 @@ type WorkerEnv = Env & {
   EMAIL_WEBHOOK_SECRET?: string;
   CONNECTOR_WEBHOOK_SECRET?: string;
   DOCUMENT_MANAGEMENT_WEBHOOK_URL?: string;
+  DOCUMENT_MANAGEMENT_WEBHOOK_SECRET?: string;
   OIDC_ISSUER?: string;
   OIDC_CLIENT_ID?: string;
   OIDC_CLIENT_SECRET?: string;
@@ -32,6 +34,7 @@ function buildDeps(env: WorkerEnv) {
     },
     connectorWebhookSecret: env.CONNECTOR_WEBHOOK_SECRET,
     documentManagementWebhookUrl: env.DOCUMENT_MANAGEMENT_WEBHOOK_URL,
+    documentManagementWebhookSecret: env.DOCUMENT_MANAGEMENT_WEBHOOK_SECRET,
     oidc: {
       issuer: env.OIDC_ISSUER,
       clientId: env.OIDC_CLIENT_ID,
@@ -52,7 +55,7 @@ export default {
   /** バックログ B-09: 四半期アクセス再認証・緊急権限の自動失効（Cron Trigger） */
   async scheduled(_event: ScheduledController, env: WorkerEnv, _ctx: ExecutionContext) {
     const deps = buildDeps(env);
-    const result = await sweepAccessControl(deps.db, { actorId: "system:cron" });
+    const result = await sweepAccessControl(deps.db, { actorId: SYSTEM_ACTOR_ID });
     console.info("[cron] access-control sweep", JSON.stringify(result));
   },
 };

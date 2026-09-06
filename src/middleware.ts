@@ -3,6 +3,7 @@ import { verifySession } from "./auth.ts";
 import { AppError } from "./errors.ts";
 import type { Permission } from "./permissions.ts";
 import { can } from "./permissions.ts";
+import { hasActiveEmergencyGrant } from "./services/access-control.ts";
 import type { AppDeps } from "./app.ts";
 import type { SessionUser, UserRole } from "./types.ts";
 
@@ -55,10 +56,19 @@ export async function authMiddleware(c: Context<{ Variables: AppVars }>, next: N
 export function requirePerm(...perms: Permission[]) {
   return async (c: Context<{ Variables: AppVars }>, next: Next) => {
     const user = c.get("user");
-    if (!perms.some((p) => can(user.role, p))) {
-      throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
+    if (perms.some((p) => can(user.role, p))) {
+      await next();
+      return;
     }
-    await next();
+    // ロール権限に無い場合のみ、緊急権限（バックログB-09）の有無をDBで確認する
+    const deps = c.get("deps");
+    for (const p of perms) {
+      if (await hasActiveEmergencyGrant(deps.db, user.id, p)) {
+        await next();
+        return;
+      }
+    }
+    throw new AppError("NOT_FOUND", "対象が見つかりません", 404);
   };
 }
 

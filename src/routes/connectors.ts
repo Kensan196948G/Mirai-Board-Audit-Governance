@@ -13,7 +13,7 @@ export function connectorRoutes() {
 
   app.get("/admin/external-connectors", requirePerm("connector:manage"), async (c) => {
     const deps = c.get("deps");
-    const documentManagement = new DocumentManagementConnector(deps.documentManagementWebhookUrl);
+    const documentManagement = new DocumentManagementConnector(deps.documentManagementWebhookUrl, deps.documentManagementWebhookSecret);
     const recent = await deps.db.all<Record<string, unknown>>(
       "SELECT connector, direction, status, created_at FROM external_connector_events ORDER BY created_at DESC LIMIT 20",
     );
